@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+    MergeQueueName:
+        Type: String
+        Default: flowlogs-merge
+        Description: Name of the SQS queue used to hold batches of files to be merged together (this is the queue that sits between the map and merge phases)
+    RawQueueName:
+        Type: String
+        Default: flowlogs-raw
+        Description: Name of the SQS queue that S3 has been configured to push object create events to (The map phase expects S3 object create events)
+
+    MergeDLQQueueName:
+        Type: String
+        Default: flowlogs-merge-fail
+        Description: Name of the SQS queue used to hold messages that failed to be completely processed by the merge process
+
+    DebugLoggingEnabled: 
+        Type: String
+        Default: "true"
+        Description: A flag indicating whether or not to write informational messaging to the std output (quite version, only enable when debugging issues)
+        AllowedValues : 
+          - "true"
+          - "false"
+    OutputBucket:
+        Type: String
+        Default: adams-got-data
+        Description: The name of the S3 bucket to write the merged + compressed parquet files to
+    OutputPath:
+        Type: String
+        Default: "output/"     
+        Description: "The path under which to write the merged + compressed parquet files to (merge phase will write hour specific parquet files in folders below this prefix, using the following format: /yyyy/MM/dd/HH/flowlogs-yyyy-MM-dd-HH-{uuid}.parquet)"
+    TrackingTableName:
+        Type: String
+        Default: "flowlogs-tracking"     
+        Description: "The name of the DynamoDB table to use for tracking which file(s) have been processed"
+
+Globals:
+  Function:
+    Runtime: go1.x
+    Handler: lambda-flowlogs-merger
+    Environment:
+      Variables:
+        DEBUG_LOGGING: !Ref DebugLoggingEnabled
+        MERGE_QUEUE_NAME: !Ref MergeQueueName
+        OUTPUT_BUCKET: !Ref OutputBucket
+        OUTPUT_PATH: !Ref OutputPath
+        TRACKING_TABLE: !Ref TrackingTableName
+
+Resources:
+  FlowlogsMerger:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: bin/
+      FunctionName: flowlogs-merger
+      Timeout: 900                      # Set to current max allowed timeout, the longer it is the less likely it is that we need to put some files back onto the SQS merge queue
+      MemorySize: 3008
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AmazonSQSFullAccess           # NB: This should refer to a policy that is more specific to the 2 SQS queues involved in this process
+        - AmazonS3FullAccess            # NB: This should refer to a policy that is more specific to the S3 Bucket(s)/Prefix(es) used by this process
+        - AmazonDynamoDBFullAccess      # NB: This should refer to a policy that is more specific to the DDB Table used by this process
+      Events: 
+        FlowlogsMergeQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: { "Fn::Sub": "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${MergeQueueName}" }
+            BatchSize: 1
+            Enabled: true
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: { "Fn::Sub": "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${MergeDLQQueueName}" }
+      Environment:
+        Variables:
+          ACTION: "merge"
+          MAP_QUEUE_NAME: !Ref RawQueueName
+  FlowlogsMapper:
+      Type: AWS::Serverless::Function
+      Properties:
+        CodeUri: bin/
+        FunctionName: flowlogs-mapper
+        Timeout: 720                    # 12 mintutes, function stops polling SQS 2mins before deadline, allowing 2 mins to complete any in-flight ops
+        MemorySize: 128                 # Typically, function uses about 50MB, 128MB is the smallest allowed, and also provides some buffer
+        Policies:         
+          - AWSLambdaBasicExecutionRole
+          - AmazonSQSFullAccess         # NB: This should refer to a policy that is more specific to the 2 SQS queues involved in this process
+          - AmazonS3FullAccess          # NB: This should refer to a policy that is more specific to the S3 Bucket(s)/Prefix(es) used by this process
+        Events:
+          RawFlowlogsMapperEvent:
+            Type: Schedule
+            Properties:
+              Schedule: rate(10 minutes)
+        Environment:
+          Variables:
+            ACTION: "map"
+  FlowlogsTrackingTable:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      TableName : !Ref TrackingTableName
+      AttributeDefinitions: 
+        - AttributeName: id
+          AttributeType: S
+      KeySchema: 
+        - AttributeName: id
+          KeyType: HASH
+      ProvisionedThroughput: 
+        ReadCapacityUnits: 200
+        WriteCapacityUnits: 300
+      TimeToLiveSpecification: 
+        AttributeName: expiry
+        Enabled: true
