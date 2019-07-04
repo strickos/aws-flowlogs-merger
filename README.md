@@ -33,8 +33,10 @@ Simplest way to build + deploy everything is to run this command:
 make deps
 
 # Build, Test and Deploy (replace my-artifact-bucket with the S3 bucket you want to use to store your artifacts)
-BUCKET=my-artifact-bucket make
+ARTIFACT_BUCKET=my-artifact-bucket make
 
+# Build, Test and Deploy with custom Cloudformation Parameters, eg. 
+ARTIFACT_BUCKET=my-artifact-bucket PARAMS="OutputBucket=my-output-bucket OutputPath=merged/ TrackingTableName=MyFlowlogsTrackingTable" make
 ```
 
 This will: 

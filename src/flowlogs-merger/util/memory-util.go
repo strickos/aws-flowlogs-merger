@@ -8,6 +8,15 @@ import (
 )
 
 /*
+CurrentMemoryInfo returns information about the current state of memory usage
+*/
+func CurrentMemoryInfo() runtime.MemStats {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m
+}
+
+/*
 PrintMemUsage prints information about memory usage to the system log
 */
 func PrintMemUsage(prefix string) {
@@ -17,8 +26,7 @@ func PrintMemUsage(prefix string) {
 		builder.WriteString(prefix)
 	}
 
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
+	mem := CurrentMemoryInfo()
 
 	builder.WriteString(fmt.Sprintf("Alloc = %s", prettifyBytes(mem.Alloc)))
 	builder.WriteString(fmt.Sprintf(", TotalAlloc = %s", prettifyBytes(mem.TotalAlloc)))

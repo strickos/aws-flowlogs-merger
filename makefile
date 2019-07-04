@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
-S3_BUCKET := $(shell echo $$BUCKET)
+S3_BUCKET := $(shell echo $$ARTIFACT_BUCKET)
+STACK_PARAMS := $(shell echo $$PARAMS)
 STACK_NAME := flowlogs-merger
 REGION := us-east-1
 
@@ -28,6 +29,8 @@ LAMBDA_BINARY=bin/lambda-flowlogs-merger
 
 all: lint vet test build build-lambda deploy
 
+foo: 
+	@echo DUDE: $(STACK_PARAMS)
 build: 
 		$(GOBUILD) -o $(BINARY_NAME) -v
 
@@ -48,13 +51,13 @@ clean:
 
 deploy: 
 		sam package --template-file template.yaml --s3-bucket $(S3_BUCKET) --output-template-file packaged.yaml --region=$(REGION)
-		sam deploy --template-file ./packaged.yaml --stack-name $(STACK_NAME) --capabilities CAPABILITY_IAM --region=$(REGION)
+		sam deploy --template-file ./packaged.yaml --stack-name $(STACK_NAME) --capabilities CAPABILITY_IAM --region=$(REGION) --parameter-overrides $(STACK_PARAMS)
 		rm -f packaged.yaml
 
 		
 run:
-		$(GOBUILD) -o $(BINARY_NAME) -v ./...
-		./$(BINARY_NAME)
+		$(GOBUILD) -o $(BINARY_NAME) -v
+		USE_REGION=$(REGION) ./$(BINARY_NAME)
 
 deps:
 		$(GOGET) github.com/aws/aws-sdk-go

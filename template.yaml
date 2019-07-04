@@ -29,12 +29,31 @@ Parameters:
         Description: The name of the S3 bucket to write the merged + compressed parquet files to
     OutputPath:
         Type: String
-        Default: "output/"     
+        Default: "output/"
         Description: "The path under which to write the merged + compressed parquet files to (merge phase will write hour specific parquet files in folders below this prefix, using the following format: /yyyy/MM/dd/HH/flowlogs-yyyy-MM-dd-HH-{uuid}.parquet)"
     TrackingTableName:
         Type: String
         Default: "flowlogs-tracking"     
         Description: "The name of the DynamoDB table to use for tracking which file(s) have been processed"
+    AutoPartitioningEnabled: 
+        Type: String
+        Default: "true"
+        Description: A flag indicating whether or not to add new partitions to an existing AWS Glue database table
+        AllowedValues : 
+          - "true"
+          - "false"
+    GlueDatabaseName:
+        Type: String
+        Default: "flowlogs"     
+        Description: "The name of the database being used in the AWS Glue Catalogue."
+    GlueTableName:
+        Type: String
+        Default: "data"     
+        Description: "The name of the table witin the AWS Glue database to add partitions to."
+    AthenaQueryOutputLocation:
+        Type: String
+        Default: ""
+        Description: "The S3 location to write the ADD PARTITION query results to. If left blank, will default to a 'qresults' folder under the output path"
 
 Globals:
   Function:
@@ -44,9 +63,14 @@ Globals:
       Variables:
         DEBUG_LOGGING: !Ref DebugLoggingEnabled
         MERGE_QUEUE_NAME: !Ref MergeQueueName
+        MAP_QUEUE_NAME: !Ref RawQueueName
         OUTPUT_BUCKET: !Ref OutputBucket
         OUTPUT_PATH: !Ref OutputPath
         TRACKING_TABLE: !Ref TrackingTableName
+        AUTO_PARTITIONING: !Ref AutoPartitioningEnabled
+        GLUE_DATABASE_NAME: !Ref GlueDatabaseName
+        GLUE_TABLE_NAME: !Ref GlueTableName
+        ATHENA_RESULTS_LOC: !Ref AthenaQueryOutputLocation
 
 Resources:
   FlowlogsMerger:
@@ -61,6 +85,7 @@ Resources:
         - AmazonSQSFullAccess           # NB: This should refer to a policy that is more specific to the 2 SQS queues involved in this process
         - AmazonS3FullAccess            # NB: This should refer to a policy that is more specific to the S3 Bucket(s)/Prefix(es) used by this process
         - AmazonDynamoDBFullAccess      # NB: This should refer to a policy that is more specific to the DDB Table used by this process
+        - AmazonAthenaFullAccess        # NB: This should refer to a policy that is more specific to the Athena DB/Table
       Events: 
         FlowlogsMergeQueueEvent:
           Type: SQS
@@ -74,7 +99,6 @@ Resources:
       Environment:
         Variables:
           ACTION: "merge"
-          MAP_QUEUE_NAME: !Ref RawQueueName
   FlowlogsMapper:
       Type: AWS::Serverless::Function
       Properties:
@@ -110,3 +134,18 @@ Resources:
       TimeToLiveSpecification: 
         AttributeName: expiry
         Enabled: true
+  FlowlogsRawQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !Ref RawQueueName
+      VisibilityTimeout: 920
+  FlowlogsMergeQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !Ref MergeQueueName
+      VisibilityTimeout: 920
+  FlowlogsMergeDLQueue:
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !Ref MergeDLQQueueName
+      VisibilityTimeout: 90

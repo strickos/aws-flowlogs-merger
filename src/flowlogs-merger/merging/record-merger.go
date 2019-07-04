@@ -2,21 +2,28 @@ package merging
 
 import (
 	"context"
+	awsUtil "flowlogs-merger/aws"
 	"flowlogs-merger/data"
 	"flowlogs-merger/util"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/xitongsys/parquet-go/source"
-
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/service/athena"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+
 	"golang.org/x/text/message"
 
 	"github.com/satori/go.uuid"
 
 	s3Parquet "github.com/xitongsys/parquet-go-source/s3"
 	"github.com/xitongsys/parquet-go/parquet"
+	"github.com/xitongsys/parquet-go/source"
 	"github.com/xitongsys/parquet-go/writer"
 )
 
@@ -49,6 +56,13 @@ type RecordMerger struct {
 	aRecord             *data.LogEntry
 	totalRecordsWritten int64
 	launchedWriterLoop  bool
+
+	s3Client            *s3.S3
+	athenaClient        *athena.Athena
+	dbName              string
+	tableName           string
+	athenaResultsLoc    string
+	partitioningEnabled bool
 }
 
 /*
@@ -56,17 +70,29 @@ MakeRecordMerger creates a RecordMerger worker and returns it.
 */
 func MakeRecordMerger(forHour int, deadline time.Time, writeToBucket string, writeToPath string, records <-chan *data.LogToProcess, recordTracker *RecordTracker) (*RecordMerger, *sync.WaitGroup) {
 	mergerer := RecordMerger{
-		forHour:       forHour,
-		deadline:      deadline,
-		records:       records,
-		writeToBucket: writeToBucket,
-		writeToPath:   writeToPath,
-		writerChannel: make(chan *WriterInfo),
-		recordTracker: recordTracker,
+		forHour:             forHour,
+		deadline:            deadline,
+		records:             records,
+		writeToBucket:       writeToBucket,
+		writeToPath:         writeToPath,
+		writerChannel:       make(chan *WriterInfo),
+		recordTracker:       recordTracker,
+		s3Client:            awsUtil.NewS3Client(),
+		athenaClient:        awsUtil.NewAthenaClient(),
+		dbName:              util.GetEnvProp("GLUE_DATABASE_NAME", "flowlogs"),
+		tableName:           util.GetEnvProp("GLUE_TABLE_NAME", "data"),
+		athenaResultsLoc:    util.GetEnvProp("ATHENA_RESULTS_LOC", ""),
+		partitioningEnabled: util.GetEnvProp("AUTO_PARTITIONING", "true") == "true",
 	}
 
 	mergerer.recordMap = make(map[string]*data.LogToProcess)
 	mergerer.launchedWriterLoop = false
+
+	if len(mergerer.athenaResultsLoc) == 0 {
+		// Default to a qresults folder under the output path if not specified
+		mergerer.athenaResultsLoc = "s3://" + mergerer.writeToBucket + "/" + writeToPath + "qresults/"
+	}
+
 	mergerer.workerWG.Add(1)
 	return &mergerer, &mergerer.workerWG
 }
@@ -192,9 +218,9 @@ func (m *RecordMerger) writerLoop() {
 		m.writeFile(pw, &info.RecordMap, info.NumRecords, info.WritableRecords, info.Timestamp)
 		fileRecordsWritten += info.WritableRecords
 
-		if fileRecordsWritten > 10000000 { // More than 10m records (that'll come in at ~250MB), let's start a new file...
+		if fileRecordsWritten > 20000000 { // More than 20m records (that'll come in at ~512MB), let's start a new file...
 			if util.DebugLoggingEnabled {
-				log.Printf("Closing Parquet File: s3://%s/%s, as it has over 10m records", m.writeToBucket, key)
+				log.Printf("Closing Parquet File: s3://%s/%s, as it has over 20m records", m.writeToBucket, key)
 			}
 			m.closeParquetWriter(pw, fw)
 			pw = nil
@@ -228,7 +254,9 @@ func (m *RecordMerger) openParquetWriter() (*writer.ParquetWriter, source.Parque
 	timeString := timestamp.Format("2006-01-02-03-04")
 	timePathString := timestamp.Format("2006/01/02")
 	uid, _ := uuid.NewV4()
-	key := m.writeToPath + timePathString + "/" + "flowlogs-" + timeString + "-" + uid.String() + ".parquet"
+	prefix := m.writeToPath + timePathString + "/"
+	m.addAthenaPartitionIfNeeded(prefix, timestamp)
+	key := prefix + "flowlogs-" + timeString + "-" + uid.String() + ".parquet"
 
 	// Create an S3 Writer
 	ctx := context.Background()
@@ -259,4 +287,114 @@ func (m *RecordMerger) writeFile(pw *writer.ParquetWriter, recordMap *map[string
 
 		v.Done()
 	}
+}
+
+func (m *RecordMerger) addAthenaPartitionIfNeeded(prefix string, timestamp time.Time) {
+	if !m.partitioningEnabled {
+		return
+	}
+
+	partitionFile := m.writeToPath + "partition-info/partition-" + timestamp.Format("2006-01-02") + ".txt"
+	fileExists, err := m.s3FileExists(m.writeToBucket, partitionFile)
+	if fileExists || err != nil {
+		if err != nil {
+			log.Printf("Failed to check for the presence of the partition file in s3, will ignore and assume that another lambda will be able to do this. Error: %s", err.Error())
+		}
+		return
+	}
+
+	monthString := timestamp.Format("2006-01")
+	dayString := timestamp.Format("2006-01-02")
+	queryString := fmt.Sprintf("ALTER TABLE %s ADD IF NOT EXISTS PARTITION (year=%d, month='%s', day='%s') LOCATION 's3://%s/%s'", m.tableName, timestamp.Year(), monthString, dayString, m.writeToBucket, prefix)
+	var qParams athena.StartQueryExecutionInput
+	qParams.SetQueryString(queryString)
+
+	var ctxParam athena.QueryExecutionContext
+	ctxParam.SetDatabase(m.dbName)
+	qParams.SetQueryExecutionContext(&ctxParam)
+
+	var qResConfig athena.ResultConfiguration
+	qResConfig.SetOutputLocation(m.athenaResultsLoc)
+	qParams.SetResultConfiguration(&qResConfig)
+
+	startRes, err := m.athenaClient.StartQueryExecution(&qParams)
+	if err != nil {
+		log.Printf("Failure attempting to add partition \"%s\" to the athena table. Error: %s", prefix, err.Error())
+		// NB: As the partition file won't be written, this'll be attempted by another lambda in this partition
+		return
+	}
+
+	var params athena.GetQueryExecutionInput
+	params.SetQueryExecutionId(*startRes.QueryExecutionId)
+
+	var qrop *athena.GetQueryExecutionOutput
+	duration := time.Duration(500) * time.Millisecond // Wait 1/2 sec between checks (query typically takes about 400ms)
+
+	attemptCounter := 0
+	for {
+		attemptCounter++
+		if attemptCounter > 20 { // ~ 10s
+			log.Println("Giving up waiting for ADD PARTITION query to complete - have been waiting for too long without any update")
+			return
+		}
+
+		qrop, err = m.athenaClient.GetQueryExecution(&params)
+		if err != nil {
+			log.Printf("Failure querying Athena to check on the progress of the add partition query. Error: %s", err.Error())
+		}
+
+		if *qrop.QueryExecution.Status.State != "RUNNING" {
+			break
+		}
+
+		time.Sleep(duration)
+	}
+
+	if *qrop.QueryExecution.Status.State == "SUCCEEDED" { // Write Partition file
+		putParams := &s3.PutObjectInput{
+			Bucket: aws.String(m.writeToBucket),
+			Key:    aws.String(partitionFile),
+			Body:   strings.NewReader(queryString),
+		}
+
+		_, err := m.s3Client.PutObject(putParams)
+		if err != nil {
+			log.Printf("ADD PARTITION Query succeeded, but failed to write the partition file to S3 - this process will be repeated by another lambda. Error: %s", err.Error())
+		} else {
+			log.Printf("Created Glue Table Partition: year=%d, month=%s, day=%s @ s3://%s/%s", timestamp.Year(), monthString, dayString, m.writeToBucket, prefix)
+		}
+	} else { // Failed, ignore and hope next lambda in this partition will succeed
+		log.Printf("ADD PARTITION Query did not complete successfully - it completed with state: %s", *qrop.QueryExecution.Status.State)
+	}
+}
+
+func (m *RecordMerger) s3FileExists(bucket string, key string) (bool, error) {
+	input := &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+
+	_, err := m.s3Client.HeadObject(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchBucket:
+				log.Fatalf("Specified output bucket doesn't exist - cannot proceed! [Got: %s]", bucket)
+			case s3.ErrCodeNoSuchKey:
+				// Key doesn't exist
+				return false, nil
+			case "NotFound":
+				// Key doesn't exist
+				return false, nil
+			default:
+				// Some other failure
+				return false, err
+			}
+		} else {
+			return false, err
+		}
+	}
+
+	// No Error means the file exists...
+	return true, nil
 }

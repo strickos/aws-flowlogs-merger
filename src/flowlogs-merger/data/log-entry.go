@@ -19,7 +19,7 @@ type LogEntry struct {
 		Built as: srcaddr + ":" + srcport + "-" + dstaddr + ":" + dstport + "-" + InterfaceID + "-" + action
 	*/
 	FlowID        string // Ignored for Parquet...
-	Version       int32  `parquet:"name=version, type=INT32"`
+	Version       int32  // Ignore for Parquet - we only support version 2 right now
 	AccountID     string `parquet:"name=account, type=UTF8, encoding=PLAIN_DICTIONARY"`
 	InterfaceID   string `parquet:"name=interfaceId, type=UTF8, encoding=PLAIN_DICTIONARY"`
 	SrcAddress    string `parquet:"name=srcAddress, type=UTF8, encoding=PLAIN_DICTIONARY"`
@@ -34,7 +34,7 @@ type LogEntry struct {
 	StartVal      int64 `parquet:"name=start, type=TIMESTAMP_MILLIS"`
 	End           time.Time
 	EndVal        int64  `parquet:"name=end, type=TIMESTAMP_MILLIS"`
-	Action        bool   `parquet:"name=accepted, type=BOOLEAN"`
+	Action        bool   `parquet:"name=action, type=BOOLEAN"`
 	LogStatus     int32  `parquet:"name=logStatus, type=INT32"` // 0 = OK, 1 = NODATA, 2 = SKIP
 	NumLogEntries int32  `parquet:"name=ofRawlogEntries, type=INT32"`
 	OriginHash    uint32 `parquet:"name=originHash, type=UINT_32"`

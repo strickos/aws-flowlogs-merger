@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/athena"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/sqs"
@@ -29,4 +30,11 @@ NewDDBClient builds and returns a new DynamoDB Client
 */
 func NewDDBClient() *dynamodb.DynamoDB {
 	return dynamodb.New(session.New(), aws.NewConfig().WithRegion(util.Region()))
+}
+
+/*
+NewAthenaClient builds and returns a new Athena Client
+*/
+func NewAthenaClient() *athena.Athena {
+	return athena.New(session.New(), aws.NewConfig().WithRegion(util.Region()))
 }
