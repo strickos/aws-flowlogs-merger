@@ -66,7 +66,7 @@ func (fp *FileCollectorForMerge) Run() {
 		sizeEstimate += int64(2*(len(file.Bucket)+len(file.Key)) + 128 + 500) // 128 for 2xint64s, 500 for field names and some buffer room
 
 		recordCounter += file.Size / 14
-		if sizeEstimate > 204800 || recordCounter > 20000000 { // > ~200kb SQS Message or 20m records
+		if sizeEstimate > 204800 || recordCounter > 40000000 { // > ~200kb SQS Message or 40m records
 			go fp.invokeMerge(mergeEvent, recordCounter, sizeEstimate)
 
 			mergeEvent = MergeInvokeEvent{Action: "merge", ForHour: fp.forHour}
