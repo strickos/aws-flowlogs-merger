@@ -9,7 +9,7 @@ REGION := us-east-1
 PROJECTNAME := $(shell basename "$(PWD)")
 
 GOBASE := $(shell pwd)
-GOPATH := $(GOBASE):$(GOBASE)/vendor
+GOPATH := $(GOBASE)/vendor:$(GOBASE)
 GOBIN := $(GOBASE)/bin
 
 GOCMD=go
