@@ -93,8 +93,8 @@ func HandleMapRequest(ctx context.Context, event events.CloudWatchEvent) (string
 	log.Println("Waiting for File Processors to finish...")
 	doneWG.Wait()
 
-	for i, channel := range *recordChannels {
-		log.Printf("Closing Record Channel for hour: %d", i)
+	log.Println("Closing All Record Channels")
+	for _, channel := range *recordChannels {
 		close(channel)
 	}
 
