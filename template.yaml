@@ -105,7 +105,7 @@ Resources:
         CodeUri: bin/
         FunctionName: flowlogs-mapper
         Timeout: 900                    # 15 mintutes, function stops polling SQS 5mins before deadline, allowing 2 mins to complete any in-flight ops
-        MemorySize: 256                 # Typically, function uses about 50MB, 128MB is the smallest allowed, and also provides some buffer
+        MemorySize: 512                 # Typically, function uses between 50 - 150MB, however, to cater for the case where events are coming in across the day at the same time, the function can push memory above 256MB due to storing message buffers for 1400 channels across the day.
         Policies:         
           - AWSLambdaBasicExecutionRole
           - AmazonSQSFullAccess         # NB: This should refer to a policy that is more specific to the 2 SQS queues involved in this process
