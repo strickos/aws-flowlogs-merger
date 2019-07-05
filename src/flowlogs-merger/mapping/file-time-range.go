@@ -9,6 +9,7 @@ import (
 	awsUtil "flowlogs-merger/aws"
 	"flowlogs-merger/data"
 	"log"
+	"math"
 	"strconv"
 	"sync"
 
@@ -109,7 +110,7 @@ func (fp *FileTimeRangeProcessor) processFile(file *data.FileToProcessInfo) {
 
 	if logData != nil {
 		file.Timestamp = logData.Start
-		collectionChannelNumber := (logData.Start.Hour() * 60) + logData.Start.Minute()
+		collectionChannelNumber := int32(math.Floor(float64((logData.Start.Hour()*60)+logData.Start.Minute()) / float64(5)))
 		fp.hourlyChannels[collectionChannelNumber] <- file
 	} else {
 		// todo: put this into an exception queue to be processed manually

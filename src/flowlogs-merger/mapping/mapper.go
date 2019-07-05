@@ -6,6 +6,7 @@ import (
 	"flowlogs-merger/data"
 	"flowlogs-merger/util"
 	"log"
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -95,7 +96,9 @@ func HandleMapRequest(ctx context.Context, event events.CloudWatchEvent) (string
 
 	log.Println("Closing All Record Channels")
 	for _, channel := range *recordChannels {
-		close(channel)
+		if channel != nil {
+			close(channel)
+		}
 	}
 
 	log.Println("Waiting for Record Collector Workers to finish processing their records...")
@@ -128,13 +131,13 @@ func startRecordCollectors() (*[]chan *data.FileToProcessInfo, *[]*FileCollector
 	if err != nil {
 		log.Fatalf("Failed to find the URL of the Merge SQS Queue with Error: %s", err.Error())
 	}
-	recordChannels := make([]chan *data.FileToProcessInfo, 24*60)
-	recordCollectors := make([]*FileCollectorForMerge, 24*60)
+	recordChannels := make([]chan *data.FileToProcessInfo, int(math.Ceil(24*60/5)))
+	recordCollectors := make([]*FileCollectorForMerge, int(math.Ceil(24*60/5)))
 	recordsWG := sync.WaitGroup{}
 
 	for h := 0; h < 24; h++ {
 		for m := 0; m < 60; m++ {
-			i := (h * 60) + m
+			i := int32(math.Floor(float64((h*60)+m) / float64(5)))
 			recordChannels[i] = make(chan *data.FileToProcessInfo)
 			recordCollectors[i] = MakeFileCollectorForMerge(h, m, queueURL, recordChannels[i])
 			go recordCollectors[i].Run()

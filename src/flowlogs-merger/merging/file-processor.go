@@ -102,7 +102,8 @@ func (fp *FileProcessor) processFile(file *data.FileToProcessInfo, printer *mess
 			record, err := data.ParseLogEntry(&line)
 			if err != nil {
 				log.Printf("%s [%d] in File [s3://%s/%s]", err.Error(), lineCounter, file.Bucket, file.Key)
-			} else {
+			} else if record.LogStatus == 0 {
+				// It's NOT a NODATA or SKIP log entry - let's only include records with data, and assume implicit no data when there's no record
 				record.OriginHash = fileHash
 				entry := data.MakeLogToProcess(record, file)
 				fp.recordChannel <- entry
