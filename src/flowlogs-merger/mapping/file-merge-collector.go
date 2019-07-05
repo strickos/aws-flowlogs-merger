@@ -63,10 +63,16 @@ func (fp *FileCollectorForMerge) Run() {
 			mergeEvent.Records = append(mergeEvent.Records, *file)
 		}
 
-		sizeEstimate += int64(2*(len(file.Bucket)+len(file.Key)) + 128 + 500) // 128 for 2xint64s, 500 for field names and some buffer room
+		jsonStringForEstimate := util.ToJSON(*file)
+		sizeEstimate += int64(len(*jsonStringForEstimate) + 4)
 
-		recordCounter += file.Size / 14
-		if sizeEstimate > 204800 || recordCounter > 40000000 { // > ~200kb SQS Message or 40m records
+		if file.UncompressedSize > 0 {
+			recordCounter += file.UncompressedSize / 113 // 113 is the size of a large record (large ENI ID, long IP addresses)
+		} else {
+			recordCounter += file.Size / 14 // a terrible rudimentary estimate
+		}
+
+		if sizeEstimate > 204800 || recordCounter > 60000000 { // > ~200kb SQS Message or 60m records
 			go fp.invokeMerge(mergeEvent, recordCounter, sizeEstimate)
 
 			mergeEvent = MergeInvokeEvent{Action: "merge", ForHour: fp.forHour}

@@ -24,8 +24,8 @@ func HandleMapRequest(ctx context.Context, event events.CloudWatchEvent) (string
 	region := util.Region()
 
 	deadLine, _ := ctx.Deadline()
-	minusOneMinute, _ := time.ParseDuration("-2m")
-	deadLine = deadLine.Add(minusOneMinute) // Subtract 2 mins from deadline to be safe
+	minusOneMinute, _ := time.ParseDuration("-5m")
+	deadLine = deadLine.Add(minusOneMinute) // Subtract 5 mins from deadline to be safe
 
 	// Start the Record Mergers
 	recordChannels, _, recordsWG := startRecordCollectors()
@@ -49,7 +49,7 @@ func HandleMapRequest(ctx context.Context, event events.CloudWatchEvent) (string
 
 	doneWG := sync.WaitGroup{}
 	var inFlightMessages int32
-	for time.Until(deadLine).Minutes() > 2 { // Stop receiving messages when there's 2 minutes to go...
+	for time.Until(deadLine).Minutes() > 0 {
 		if inFlightMessages > 4*numFileReaders { // We only want to keep enough messages in the queue so that there's always 3 messages ready for the reader
 			time.Sleep(100 * time.Millisecond)
 		}

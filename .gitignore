@@ -16,3 +16,4 @@ bin/
 lambda-flowlogs-merger
 *-stderr.txt
 .DS_Store
+.vscode/

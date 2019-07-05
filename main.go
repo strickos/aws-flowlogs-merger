@@ -38,7 +38,7 @@ func main() {
 func testMerge() {
 	os.Setenv("USE_REGION", "us-east-1")
 	os.Setenv("DEBUG_LOGGING", "true")
-	jsonData := "{\"action\":\"merge\",\"records\":[{         \"bucket\": \"adams-got-data\",         \"key\": \"AWSLogs/034496339141/vpcflowlogs/us-east-1/2019/06/05/034496339141_vpcflowlogs_us-east-1_fl-093a2bd1f31cac72f_20190605T0835Z_8246457e.log.gz\",         \"size\": 37167205,         \"timestamp\": 1559717343 }] }"
+	jsonData := "{\"action\":\"merge\",\"records\":[{         \"bucket\": \"adams-got-data\",         \"key\": \"AWSLogs/034496339141/vpcflowlogs/us-east-1/2019/06/05/034496339141_vpcflowlogs_us-east-1_fl-093a2bd1f31cac72f_20190605T0835Z_8246457e.log.gz\",         \"size\": 35552739,         \"timestamp\": 1559717343 }] }"
 	event := events.SQSEvent{}
 	event.Records = append(event.Records, events.SQSMessage{Body: jsonData})
 	deadline := time.Unix(time.Now().Unix()+900, 0)

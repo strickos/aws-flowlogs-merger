@@ -1,16 +1,15 @@
 SHELL := /bin/bash
 
+
 S3_BUCKET := $(shell echo $$ARTIFACT_BUCKET)
 STACK_PARAMS := $(shell echo $$PARAMS)
 STACK_NAME := flowlogs-merger
 REGION := us-east-1
 
-VERSION := $(shell git describe --tags)
-BUILD := $(shell git rev-parse --short HEAD)
 PROJECTNAME := $(shell basename "$(PWD)")
 
 GOBASE := $(shell pwd)
-GOPATH := $(GOBASE)/vendor:$(GOBASE)
+GOPATH := $(GOBASE):$(GOBASE)/vendor
 GOBIN := $(GOBASE)/bin
 
 GOCMD=go
@@ -21,9 +20,6 @@ GOVET=$(GOCMD) vet
 GOGET=$(GOCMD) get
 GOLINT=golint -set_exit_status
 
-# Use linker flags to provide version/build settings
-LDFLAGS=-ldflags "-X=main.Version=$(VERSION) -X=main.Build=$(BUILD)"
-
 BINARY_NAME=bin/flowlogs-merger
 LAMBDA_BINARY=bin/lambda-flowlogs-merger
 
@@ -32,10 +28,10 @@ all: lint vet test build build-lambda deploy
 foo: 
 	@echo DUDE: $(STACK_PARAMS)
 build: 
-		$(GOBUILD) -o $(BINARY_NAME) -v
+		$(GOBUILD) -o $(BINARY_NAME)
 
 build-lambda:
-		GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(LAMBDA_BINARY) -v
+		GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(LAMBDA_BINARY)
 
 test: 
 		$(GOTEST) -bench -v ./...

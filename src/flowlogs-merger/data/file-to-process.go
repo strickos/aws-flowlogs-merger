@@ -14,8 +14,9 @@ type FileToProcessInfo struct {
 	Size         int64  `json:"size"`
 	TimestampVal int64  `json:"timestamp"`
 
-	Timestamp time.Time `json:"-"`
-	wg        *sync.WaitGroup
+	UncompressedSize int64     `json:"-"`
+	Timestamp        time.Time `json:"-"`
+	wg               *sync.WaitGroup
 }
 
 /*

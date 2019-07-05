@@ -2,11 +2,14 @@ package mapping
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
+	"encoding/binary"
 	"encoding/json"
 	awsUtil "flowlogs-merger/aws"
 	"flowlogs-merger/data"
 	"log"
+	"strconv"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -59,15 +62,28 @@ func (fp *FileTimeRangeProcessor) processFile(file *data.FileToProcessInfo) {
 	params := &s3.GetObjectInput{
 		Bucket: aws.String(file.Bucket),
 		Key:    aws.String(file.Key),
+		Range:  aws.String("bytes=" + strconv.Itoa(int(file.Size-4)) + "-" + strconv.Itoa(int(file.Size-1))),
 	}
 
-	// Only grab enough to read the first few lines...
-	if file.Size > 2048 {
-		params.Range = aws.String("bytes=0-2048") // Just grab first 2kb
-	}
-
-	// Get the Object, Reading as GZ
+	// Step 1: Get the Uncompressed Size
 	obj, err := fp.s3Client.GetObject(params)
+	if err != nil {
+		log.Println(err)
+	} else {
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(obj.Body)
+		file.UncompressedSize = int64(binary.LittleEndian.Uint32(buf.Bytes())) // We're not supporting files >4GB uncompressed
+	}
+
+	// Step 2: Get first few Kb of the Object, Reading as GZ
+	params = &s3.GetObjectInput{
+		Bucket: aws.String(file.Bucket),
+		Key:    aws.String(file.Key),
+	}
+	if file.Size > 2048 {
+		params.Range = aws.String("bytes=0-2048")
+	}
+	obj, err = fp.s3Client.GetObject(params)
 	gz, err := gzip.NewReader(obj.Body)
 	if err != nil {
 		log.Printf("Failed to load the GZip Reader [File: s3://%s/%s], with Error: %s", file.Bucket, file.Key, err.Error())
