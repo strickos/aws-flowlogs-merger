@@ -7,6 +7,7 @@ import (
 	"flowlogs-merger/util"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/sqs"
@@ -31,18 +32,20 @@ type FileCollectorForMerge struct {
 	forMinute int
 	channel   chan *data.FileToProcessInfo
 	queueURL  string
+	wg        *sync.WaitGroup
 }
 
 /*
 MakeFileCollectorForMerge creates a new Collector for Merge worker and returns it.
 */
-func MakeFileCollectorForMerge(forHour int, forMinute int, queueURL string, channel chan *data.FileToProcessInfo) *FileCollectorForMerge {
+func MakeFileCollectorForMerge(forHour int, forMinute int, queueURL string, channel chan *data.FileToProcessInfo, wg *sync.WaitGroup) *FileCollectorForMerge {
 	collector := FileCollectorForMerge{
 		sqsClient: awsUtil.NewSqsClient(),
 		forHour:   forHour,
 		forMinute: forMinute,
 		queueURL:  queueURL,
 		channel:   channel,
+		wg:        wg,
 	}
 	return &collector
 }
@@ -113,5 +116,10 @@ func (fp *FileCollectorForMerge) invokeMerge(mergeEvent MergeInvokeEvent, record
 	_, sendErr := fp.sqsClient.SendMessage(params)
 	if sendErr != nil {
 		log.Printf("Failure sending SQS Message. Error: %s", err.Error())
+	}
+
+	// Mark each file as done...
+	for range mergeEvent.Records {
+		fp.wg.Done()
 	}
 }

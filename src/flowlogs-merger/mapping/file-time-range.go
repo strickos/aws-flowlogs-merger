@@ -69,7 +69,7 @@ func (fp *FileTimeRangeProcessor) processFile(file *data.FileToProcessInfo) {
 	// Step 1: Get the Uncompressed Size
 	obj, err := fp.s3Client.GetObject(params)
 	if err != nil {
-		log.Println(err)
+		log.Printf("Failed to read file from: s3://%s/%s, with Error: %s", file.Bucket, file.Key, err.Error())
 	} else {
 		buf := new(bytes.Buffer)
 		buf.ReadFrom(obj.Body)
@@ -85,9 +85,17 @@ func (fp *FileTimeRangeProcessor) processFile(file *data.FileToProcessInfo) {
 		params.Range = aws.String("bytes=0-2048")
 	}
 	obj, err = fp.s3Client.GetObject(params)
+	if err != nil {
+		// todo: put this into an exception queue to be processed manually
+		log.Printf("Failed to read the file from s3 [File: s3://%s/%s], with Error: %s", file.Bucket, file.Key, err.Error())
+		return
+	}
+
 	gz, err := gzip.NewReader(obj.Body)
 	if err != nil {
+		// todo: put this into an exception queue to be processed manually
 		log.Printf("Failed to load the GZip Reader [File: s3://%s/%s], with Error: %s", file.Bucket, file.Key, err.Error())
+		return
 	}
 
 	defer obj.Body.Close()
@@ -111,9 +119,11 @@ func (fp *FileTimeRangeProcessor) processFile(file *data.FileToProcessInfo) {
 	if logData != nil {
 		file.Timestamp = logData.Start
 		collectionChannelNumber := int32(math.Floor(float64((logData.Start.Hour()*60)+logData.Start.Minute()) / float64(5)))
+		fp.wg.Add(1)
 		fp.hourlyChannels[collectionChannelNumber] <- file
 	} else {
 		// todo: put this into an exception queue to be processed manually
 		log.Printf("Oh dear - this file doesn't appear to be in a valid FlowLogs format, will skip this file: [s3://%s/%s]", file.Bucket, file.Key)
 	}
+
 }

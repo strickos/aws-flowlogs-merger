@@ -27,7 +27,7 @@ type LogEntry struct {
 	SrcPort       int32  `parquet:"name=srcPort, type=INT32"`
 	DstPort       int32  `parquet:"name=dstPort, type=INT32"`
 	Protocol      int32  `parquet:"name=protocol, type=INT32"`
-	ProtocolName  string `parquet:"name=protocolName, type=UTF8, encoding=PLAIN_DICTIONARY"`
+	ProtocolName  string //`parquet:"name=protocolName, type=UTF8, encoding=PLAIN_DICTIONARY"`
 	Packets       int64  `parquet:"name=packets, type=INT64"`
 	Bytes         int64  `parquet:"name=bytes, type=INT64"`
 	Start         time.Time
@@ -35,9 +35,9 @@ type LogEntry struct {
 	End           time.Time
 	EndVal        int64  `parquet:"name=end, type=TIMESTAMP_MILLIS"`
 	Action        bool   `parquet:"name=action, type=BOOLEAN"`
-	LogStatus     int32  `parquet:"name=logStatus, type=INT32"` // 0 = OK, 1 = NODATA, 2 = SKIP
+	LogStatus     int32  // `parquet:"name=logStatus, type=INT32"` // 0 = OK, 1 = NODATA, 2 = SKIP
 	NumLogEntries int32  `parquet:"name=ofRawlogEntries, type=INT32"`
-	OriginHash    uint32 `parquet:"name=originHash, type=UINT_32"`
+	OriginHash    uint32 // `parquet:"name=originHash, type=UINT_32"`
 }
 
 /*

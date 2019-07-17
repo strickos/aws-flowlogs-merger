@@ -139,7 +139,7 @@ func startRecordCollectors() (*[]chan *data.FileToProcessInfo, *[]*FileCollector
 		for m := 0; m < 60; m++ {
 			i := int32(math.Floor(float64((h*60)+m) / float64(5)))
 			recordChannels[i] = make(chan *data.FileToProcessInfo)
-			recordCollectors[i] = MakeFileCollectorForMerge(h, m, queueURL, recordChannels[i])
+			recordCollectors[i] = MakeFileCollectorForMerge(h, m, queueURL, recordChannels[i], &recordsWG)
 			go recordCollectors[i].Run()
 		}
 	}
