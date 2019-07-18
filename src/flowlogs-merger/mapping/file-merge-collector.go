@@ -27,25 +27,27 @@ type MergeInvokeEvent struct {
 FileCollectorForMerge is a worker go routine that will collect files for a particular hour.
 */
 type FileCollectorForMerge struct {
-	sqsClient *sqs.SQS
-	forHour   int
-	forMinute int
-	channel   chan *data.FileToProcessInfo
-	queueURL  string
-	wg        *sync.WaitGroup
+	sqsClient      *sqs.SQS
+	forHour        int
+	forMinute      int
+	channel        chan *data.FileToProcessInfo
+	queueURL       string
+	wg             *sync.WaitGroup
+	collectorIndex int32
 }
 
 /*
 MakeFileCollectorForMerge creates a new Collector for Merge worker and returns it.
 */
-func MakeFileCollectorForMerge(forHour int, forMinute int, queueURL string, channel chan *data.FileToProcessInfo, wg *sync.WaitGroup) *FileCollectorForMerge {
+func MakeFileCollectorForMerge(forHour int, forMinute int, queueURL string, channel chan *data.FileToProcessInfo, wg *sync.WaitGroup, collectorIndex int32) *FileCollectorForMerge {
 	collector := FileCollectorForMerge{
-		sqsClient: awsUtil.NewSqsClient(),
-		forHour:   forHour,
-		forMinute: forMinute,
-		queueURL:  queueURL,
-		channel:   channel,
-		wg:        wg,
+		sqsClient:      awsUtil.NewSqsClient(),
+		forHour:        forHour,
+		forMinute:      forMinute,
+		queueURL:       queueURL,
+		channel:        channel,
+		wg:             wg,
+		collectorIndex: collectorIndex,
 	}
 	return &collector
 }
@@ -86,15 +88,17 @@ func (fp *FileCollectorForMerge) Run() {
 
 	if util.DebugLoggingEnabled {
 		if recordCounter > 0 {
-			log.Printf("File Collector for Merge is closing, will invoke final file now with the %d remaining records", recordCounter)
+			log.Printf("File Collector %d for Merge is closing, will invoke final file now with the %d remaining records", fp.collectorIndex, recordCounter)
 		} else {
-			log.Printf("File Collector for Merge is closing")
+			log.Printf("File Collector %d for Merge is closing", fp.collectorIndex)
 		}
 	}
 
 	if recordCounter > 0 {
 		fp.invokeMerge(mergeEvent, recordCounter, sizeEstimate)
 	}
+
+	log.Printf("File Collector %d Exiting", fp.collectorIndex)
 }
 
 func (fp *FileCollectorForMerge) invokeMerge(mergeEvent MergeInvokeEvent, recordCounter int64, sizeEstimate int64) {

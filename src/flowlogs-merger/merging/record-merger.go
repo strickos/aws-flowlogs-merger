@@ -7,6 +7,7 @@ import (
 	"flowlogs-merger/util"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,9 @@ type RecordMerger struct {
 	tableName           string
 	athenaResultsLoc    string
 	partitioningEnabled bool
+
+	maxRecordsPerFile int64
+	compressionType   parquet.CompressionCodec
 }
 
 /*
@@ -87,6 +91,28 @@ func MakeRecordMerger(forHour int, deadline time.Time, writeToBucket string, wri
 
 	mergerer.recordMap = make(map[string]*data.LogToProcess)
 	mergerer.launchedWriterLoop = false
+	recordsPerFile, err := strconv.Atoi(util.GetEnvProp("MAX_RECORDS_PER_FILE", "20000000"))
+	if err == nil {
+		mergerer.maxRecordsPerFile = int64(recordsPerFile)
+	} else {
+		log.Printf("Invalid Number of records per file specified! [Error: %s]", err.Error())
+		mergerer.maxRecordsPerFile = 20000000 // Default: More than 20m records (that'll come in at ~512MB)
+	}
+
+	// Setup the Compression type to use
+	compType := strings.ToUpper(util.GetEnvProp("COMPRESSION", "SNAPPY"))
+	switch compType {
+	case "SNAPPY":
+		mergerer.compressionType = parquet.CompressionCodec_SNAPPY
+	case "GZIP":
+		mergerer.compressionType = parquet.CompressionCodec_GZIP
+	case "GZ":
+		mergerer.compressionType = parquet.CompressionCodec_GZIP
+	case "LZO":
+		mergerer.compressionType = parquet.CompressionCodec_LZO
+	case "NONE":
+		mergerer.compressionType = parquet.CompressionCodec_UNCOMPRESSED
+	}
 
 	if len(mergerer.athenaResultsLoc) == 0 {
 		// Default to a qresults folder under the output path if not specified
@@ -218,9 +244,9 @@ func (m *RecordMerger) writerLoop() {
 		m.writeFile(pw, &info.RecordMap, info.NumRecords, info.WritableRecords, info.Timestamp)
 		fileRecordsWritten += info.WritableRecords
 
-		if fileRecordsWritten > 20000000 { // More than 20m records (that'll come in at ~512MB), let's start a new file...
+		if fileRecordsWritten > m.maxRecordsPerFile {
 			if util.DebugLoggingEnabled {
-				log.Printf("Closing Parquet File: s3://%s/%s, as it has over 20m records", m.writeToBucket, key)
+				log.Printf("Closing Parquet File: s3://%s/%s, as it has more than the max. allowed records", m.writeToBucket, key)
 			}
 			m.closeParquetWriter(pw, fw)
 			pw = nil
@@ -270,7 +296,7 @@ func (m *RecordMerger) openParquetWriter() (*writer.ParquetWriter, source.Parque
 
 	// Create a Parquet Writer
 	pw, err := writer.NewParquetWriter(fw, new(data.LogEntry), 4)
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
+	pw.CompressionType = m.compressionType
 	if err != nil {
 		log.Println("Failed to create the parquet writer with error:", err.Error())
 		return nil, nil, ""
